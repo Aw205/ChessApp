@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chess</title>
+    <link rel="stylesheet" href="chessboardjs-1.0.0/css/chessboard-1.0.0.min.css">
+    <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+    <script src="chessboardjs-1.0.0/js/chessboard-1.0.0.min.js"></script>
+
+    <style>
+        body {
+            background-color: rgb(25, 25, 25);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="board1" style="width: 30%; margin: auto;"></div>
+    <script>
+
+        var config = {
+            draggable: true,
+            showNotation: true,
+            dropOffBoard: 'snapback',
+
+            //position: 'start',
+            //position: '8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - ', //position 3
+            position: 'rnbqkbnr/ppp3pp/4B3/p3R2p/1P6/8/PPPP1PPP/RNB1KBNR w - - 0 1', //double check
+            //position: 'r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ', // kiwipete
+            //position: 'n1n5/PPPk4/8/8/8/8/4K1qp/5q1N w - - 0 1', // promotion test
+            //position: '8/8/8/2k5/2p1p3/8/3P4/4K3 w - - 0 1', // en passant check evasion
+            //position: '8/6bb/8/8/R1pP2k1/4P3/P7/K7 b - d3 0 1', //en passant horizontal pin test
+            sparePieces: false,
+            onDrop: onDrop,
+            onDragStart: onDragStart,
+            onSnapEnd: onSnapEnd
+        }
+        var board1 = ChessBoard('board1', config);
+        var currentMove = null;
+
+        const soundMap = new Map([
+            ["QUIET", new Audio("assets/audio/move-self.mp3")],
+            ["DOUBLE_PUSH", new Audio("assets/audio/move-self.mp3")],
+            ["CAPTURE", new Audio("assets/audio/capture.mp3")],
+            ["EP_CAPTURE", new Audio("assets/audio/capture.mp3")],
+            ["CASTLE", new Audio("assets/audio/castle.mp3")],
+            ["CHECK", new Audio("assets/audio/move-check.mp3")],
+            ["PROMO", new Audio("assets/audio/promote.mp3")],
+            ["PROMO_CAPTURE", new Audio("assets/audio/promote.mp3")],
+            ["GAME_END", new Audio("assets/audio/game-end.mp3")]
+        ]);
+
+        var whiteSquareGrey = '#a9a9a9'
+        var blackSquareGrey = '#696969'
+
+        let validMoves = [];
+
+        function makeRandomMove() {
+
+            if (validMoves.length == 0) {
+                console.log("Checkmate!");
+                soundMap.get("GAME_END").play();
+                return;
+            }
+
+            let move = validMoves[Math.floor(Math.random() * validMoves.length)];
+            board1.position(move.fen);
+            soundMap.get(move.type).play();
+
+            updateGameState(move.id);
+
+        }
+
+        function removeGreySquares() {
+            $('#board1 .square-55d63').css('background', '');
+        }
+
+        function onDrop(source, target, piece, newPos, oldPos, orientation) {
+
+            removeGreySquares();
+            let move = validMoves.find((m) => m.from == source && m.to == target);
+            if (move == undefined) {
+                return 'snapback';
+            }
+            currentMove = move;
+            soundMap.get(move.type).play();
+            updateGameState(move.id);
+            //setTimeout(makeRandomMove, 500);
+        }
+
+        function onSnapEnd(source, target, piece) {
+            board1.position(currentMove.fen);
+        }
+
+        function greySquare(square) {
+            var $square = $('#board1 .square-' + square)
+            var background = whiteSquareGrey
+            if ($square.hasClass('black-3c85d')) {
+                background = blackSquareGrey
+            }
+            $square.css('background', background)
+        }
+
+        function onDragStart(source, piece, position, orientation) {
+            let moves = validMoves.filter((m) => m.from == source);
+            for (let m of moves) {
+                greySquare(m.to);
+            }
+        }
+    </script>
+
+    <script>
+
+        function getLegalMoves() {
+            fetch('http://localhost:8080/legalMoves')
+                .then(response => {
+                    return response.json();
+                })
+                .then(data => {
+                    validMoves = data;
+                });
+        }
+
+        function updateGameState(fromTo) {
+
+            fetch('http://localhost:8080/updateGameState', {
+                method: 'PUT',
+                body: fromTo
+            })
+                .then(reponse => {
+                    getLegalMoves();
+                });
+        }
+
+        this.getLegalMoves();
+
+    </script>
+</body>
+
+</html>
