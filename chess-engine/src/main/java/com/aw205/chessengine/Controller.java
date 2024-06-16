@@ -15,22 +15,23 @@ import com.aw205.chessengine.engine.GameState;
 import com.aw205.chessengine.engine.Move;
 import com.aw205.chessengine.engine.MoveLogic;
 import com.aw205.chessengine.engine.Type;
+import com.aw205.chessengine.engine.mType;
 
 @CrossOrigin(origins = { "*" })
 @RestController
 public class Controller {
 
-    public Map<String, Move> moveMap = new HashMap<String, Move>();
+    public Map<String, Integer> moveMap = new HashMap<String, Integer>();
 
     @RequestMapping("/legalMoves")
     public List<_Move> getLegalMoves() {
 
         long kingPos = GameState.piecePosition[GameState.position.turn ^ 1][Type.KING.ordinal()];
-        int kingIndex = MoveLogic.BBtoSquare.get(kingPos);
+        int kingIndex = Long.numberOfTrailingZeros(kingPos);
 
         List<_Move> moves = new ArrayList<_Move>();
 
-        for (Move m : GameState.generateMoves()) {
+        for (int m : GameState.generateMoves()) {
 
             GameState.makeMove(m);
             String fen = GameState.getFen();
@@ -59,20 +60,19 @@ class _Move {
     public String from;
     public String to;
     public String type;
-    public String promoType;
+    public String promoType = "";
     public String fen;
     public String id;
 
-    public _Move(Move m, String fen) {
+    public _Move(int m, String fen) {
 
-        this.from = moveToCoord(m.from);
-        this.to = moveToCoord(m.to);
-        this.type = m.type.toString();
-        if(m.promoType == null){
-            this.promoType = "";
-        }
-        else{
-            this.promoType = m.promoType.toString();
+        this.from = moveToCoord(Move.getFromSquare(m));
+        this.to = moveToCoord(Move.getToSquare(m));
+
+        this.type = mType.valMTypes[Move.getMoveType(m)].toString();
+        
+        if(this.type.equals("PROMO") || this.type.equals("PROMO_CAPTURE")){ //fix this
+            this.promoType = Type.values()[Move.getPromoType(m)].toString();
         }
        
         this.fen = fen;
@@ -84,9 +84,8 @@ class _Move {
         return this.from + this.to + this.promoType;
     }
 
-    private String moveToCoord(long bb) {
+    private String moveToCoord(int square) {
 
-        int square = MoveLogic.BBtoSquare.get(bb);
         int row = 1 + (square / 8);
         char column = (char) ('a' + (square % 8));
         return String.valueOf(column) + row;

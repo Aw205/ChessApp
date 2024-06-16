@@ -3,100 +3,79 @@ package com.aw205.chessengine.engine;
 import org.springframework.web.bind.annotation.GetMapping;
 
 public class Piece {
-	
-	Type type = Type.BISHOP;
 
-	public int squareIndex = 0;
-	public Colour color;
-	
-	public long pin_mask = -1; // squares the piece can travel along the pin
-	public long legalMoves = 0;
-	public long pseudoLegalMoves =0;
-	public long attackedSquares =0;
-	
-	
-	public Piece(int squareIndex,Type type,Colour color) {
-		
-		this.type = type;
-		this.color = color;
-		this.squareIndex = squareIndex;
+	private static final int COLOR_SHIFT = 0; // 1 bits
+	private static final int TYPE_SHIFT = 1; // 3 bit
 
+	public static int encodePiece(int color, int type) {
+		return (color << COLOR_SHIFT) | (type << TYPE_SHIFT);
 	}
 
-	public Piece(Piece p ){
-
-		if(p == null) return;
-
-		this.type = p.type;
-		this.squareIndex = p.squareIndex;
-		this.color = p.color;
-		this.pin_mask = p.pin_mask;
-		this.legalMoves = p.legalMoves;
-		this.pseudoLegalMoves = p.pseudoLegalMoves;
-		this.attackedSquares = p.attackedSquares;
-
-
-	}
-	
-	public void generateLegalMoves() {
-		
-		generateAttackedSquares();
-		pseudoLegalMoves = MoveLogic.filterPseudoLegalMoves(attackedSquares, color);
-		calcPinMask();
-		legalMoves = MoveLogic.filterLegalMoves(type, color, pin_mask, pseudoLegalMoves);
+	public static int getColor(int piece) {
+		return (piece >>> COLOR_SHIFT) & 0x1;
 	}
 
-	public void generateLegalPawnMoves(){
-
-		generateAttackedSquares();
-		pseudoLegalMoves = MoveLogic.filterPseudoLegalMoves(attackedSquares, color);
-
-		pseudoLegalMoves &= GameState.occupied; 
-		pseudoLegalMoves |= MoveLogic.single_pawn_push(squareIndex, color); 
-		pseudoLegalMoves |= MoveLogic.double_pawn_push(squareIndex, color);
-
-		calcPinMask();
-		legalMoves = MoveLogic.filterLegalMoves(type, color, pin_mask, pseudoLegalMoves);
+	public static int getType(int piece) {
+		return (piece >>> TYPE_SHIFT) & 0x7;
 	}
-	
-	public void calcPinMask() {
-		
-		//can pass in king index
-		pin_mask = -1;
-		long from = MoveLogic.squareToBB.get(squareIndex);
-		boolean isPinned = (from & MoveLogic.pinned) !=0;
-		if(isPinned) {
-			long kingPos = GameState.piecePosition[color.ordinal()][Type.KING.ordinal()];
-			int kingIndex = MoveLogic.BBtoSquare.get(kingPos);
-			pin_mask = MoveLogic.squaresToLine[squareIndex][kingIndex];	
+
+	public static long generateLegalPawnMoves(int squareIndex, long attackedSquares,int kingIndex) {
+
+		long pseudoLegalMoves = MoveLogic.filterPseudoLegalMoves(attackedSquares);
+
+		pseudoLegalMoves &= GameState.occupied;
+		pseudoLegalMoves |= MoveLogic.single_pawn_push(squareIndex, GameState.position.turn);
+		pseudoLegalMoves |= MoveLogic.double_pawn_push(squareIndex, GameState.position.turn);
+
+		long pinMask = calcPinMask(squareIndex,kingIndex);
+		return MoveLogic.filterLegalMoves(0,pinMask,pseudoLegalMoves);
+	}
+
+	public static long calcPinMask(int squareIndex, int kingIndex) {
+
+		long pinMask = -1;
+		long from = 1L << squareIndex;
+		boolean isPinned = (from & MoveLogic.pinned) != 0;
+		if (isPinned) {
+			pinMask = MoveLogic.squaresToLine[squareIndex][kingIndex];
 		}
+		return pinMask;
 	}
-	
-	public long generateAttackedSquares(){
+
+	public static long generateAttackedSquares(int type, int color, int squareIndex) {
+
+		long attackedSquares = 0;
 
 		switch (type) {
-			case PAWN:
-				attackedSquares = MoveLogic.pawnAttacks[color.ordinal()][squareIndex];
+			case 0:
+				attackedSquares = MoveLogic.pawnAttacks[color][squareIndex];
 				break;
-			case BISHOP:
-				attackedSquares = MoveLogic.bishop_moves(squareIndex,GameState.occupied);
+			case 1:
+				attackedSquares = MoveLogic.bishop_moves(squareIndex, GameState.occupied);
 				break;
-			case KNIGHT:
+			case 2:
 				attackedSquares = MoveLogic.knightAttacks[squareIndex];
 				break;
-			case ROOK:
-				attackedSquares = MoveLogic.rook_moves(squareIndex,GameState.occupied);
+			case 3:
+				attackedSquares = MoveLogic.rook_moves(squareIndex, GameState.occupied);
 				break;
-			case QUEEN:
-				attackedSquares = MoveLogic.rook_moves(squareIndex,GameState.occupied);
-				attackedSquares |= MoveLogic.bishop_moves(squareIndex,GameState.occupied);
+			case 4:
+				attackedSquares = MoveLogic.rook_moves(squareIndex, GameState.occupied);
+				attackedSquares |= MoveLogic.bishop_moves(squareIndex, GameState.occupied);
 				break;
-			case KING:
+			case 5:
 				attackedSquares = MoveLogic.kingAttacks[squareIndex];
 				break;
 			default:
 		}
 		return attackedSquares;
+	}
+
+	public static long generateLegalMoves(int type, int squareIndex, long attackedSquares, int kingIndex) {
+
+		long pseudoLegalMoves = MoveLogic.filterPseudoLegalMoves(attackedSquares);
+		long pinMask = calcPinMask(squareIndex, kingIndex);
+		return MoveLogic.filterLegalMoves(type, pinMask, pseudoLegalMoves);
 	}
 
 }

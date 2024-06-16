@@ -16,9 +16,7 @@ public class MoveLogic {
 	public static int[][] castleTargetSquares = { { 2, 6 }, { 58, 62 } };
 	public static int[][] initialRookSquares = { { 0, 7 }, { 56, 63 } };
 
-	public static Map<Integer, Long> squareToBB = new HashMap<Integer, Long>();
-	public static Map<Long, Integer> BBtoSquare = new HashMap<Long, Integer>();
-	// public static Map<Long,
+	public static Map<Integer,long[]> kingToRook = new HashMap<Integer,long[]>(); //rookFromIdx, rookToIdx, rookFromTo
 
 	public static long[] diagMasks = new long[16];
 	public static long[] antiDiagMasks = new long[16];
@@ -30,9 +28,8 @@ public class MoveLogic {
 	public static long[] kingAttacks = new long[64];
 
 	public static long[][] inBetween = new long[64][64];
-	public static long[][] squaresToLine = new long[64][64]; // indicies are from-to, returns the line/diag it resides
-																// on
-
+	public static long[][] squaresToLine = new long[64][64]; // indicies are from-to, returns the line/diag it resides on
+																
 	public static mType[][] pawnMoves = new mType[64][64];
 
 	public static long xRayRookAttacks(int square, long blockers) {
@@ -53,7 +50,7 @@ public class MoveLogic {
 
 	public static long sliding_moves(int square, long occupied, long mask) {
 
-		long piece_pos = squareToBB.get(square);
+		long piece_pos = 1L << square;
 		long piece_pos_rev = Long.reverse(piece_pos);
 		long occupied_rev = Long.reverse(occupied & mask);
 
@@ -83,10 +80,10 @@ public class MoveLogic {
 
 	}
 
-	public static long filterLegalMoves(Type type, Colour color, long pin_mask, long moves) {
-		if (type == Type.KING) {
+	public static long filterLegalMoves(int type, long pin_mask, long moves) {
+		if (type == Type.KING.ordinal()) {
 			moves &= ~king_mask; // ensure king doesn't move onto line of checkers
-			moves &= ~GameState.attackedSquares[color.opposite().ordinal()];
+			moves &= ~GameState.attackedSquares[GameState.position.turn ^ 1];
 			return moves;
 		}
 		return moves &= (push_mask | capture_mask) & pin_mask;
@@ -100,9 +97,9 @@ public class MoveLogic {
 	 * @param pColor
 	 * @return
 	 */
-	public static long filterPseudoLegalMoves(long moves, Colour pColor) {
+	public static long filterPseudoLegalMoves(long moves) {
 
-		long piecePositions = GameState.colorPositions[pColor.ordinal()];
+		long piecePositions = GameState.colorPositions[GameState.position.turn];
 		moves &= ~piecePositions;
 		return moves;
 	}
@@ -115,29 +112,20 @@ public class MoveLogic {
 
 	}
 
-	public static long single_pawn_push(int square, Colour color) {
+	public static long single_pawn_push(int square, int color) {
 
-		long pawn_move = MoveLogic.squareToBB.get(square);
-		long push = (color == Colour.WHITE) ? pawn_move << 8 : pawn_move >> 8;
+		long pawn_move = 1L << square;
+		long push = (color == 0) ? pawn_move << 8 : pawn_move >> 8;
 		return push & ~GameState.occupied;
 
 	}
 
-	public static long double_pawn_push(int square, Colour color) {
+	public static long double_pawn_push(int square, int color) {
 
-		long rankMask = (color == Colour.WHITE) ? rankMasks[3] : rankMasks[4];
+		long rankMask = (color == 0) ? rankMasks[3] : rankMasks[4];
 		long push = single_pawn_push(square, color);
-		long double_push = (color == Colour.WHITE) ? push << 8 : push >> 8;
+		long double_push = (color == 0) ? push << 8 : push >> 8;
 		return double_push & ~GameState.occupied & rankMask;
-
-	}
-
-	public static long getPawnPushTargets(){
-
-		long pawns = GameState.piecePosition[GameState.position.turn][Type.PAWN.ordinal()];
-		long rankMask = rankMasks[3+GameState.position.turn];
-		long single =  ((pawns << 8) >>> (GameState.position.turn << 4)) & ~GameState.occupied;
-		return  single | (((single << 8) >>> (GameState.position.turn << 4)) & ~GameState.occupied & rankMask);
 
 	}
 
@@ -169,7 +157,7 @@ public class MoveLogic {
 		long occBQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.BISHOP.ordinal()] | occQ;
 
 		long kingBB = GameState.piecePosition[GameState.position.turn][Type.KING.ordinal()];
-		int kingPos = BBtoSquare.get(kingBB);
+		int kingPos = Long.numberOfTrailingZeros(kingBB);
 
 		long pinner = xRayRookAttacks(kingPos, GameState.colorPositions[GameState.position.turn])
 				& occRQ;
@@ -202,9 +190,10 @@ public class MoveLogic {
 			long[] checkers = { lsb, msb };
 
 			for (long c : checkers) {
-				int idx = BBtoSquare.get(c);
-				Type t = GameState.board[idx].type;
-				if (t == Type.BISHOP || t == Type.ROOK || t == Type.QUEEN) {
+				int idx = Long.numberOfTrailingZeros(c);
+				int t = Piece.getType(GameState.board[idx]);
+
+				if (t == Type.BISHOP.ordinal() || t == Type.ROOK.ordinal() || t == Type.QUEEN.ordinal()) {
 					king_mask |= (squaresToLine[kingIndex][idx] ^ c);
 				}
 			}
@@ -214,9 +203,9 @@ public class MoveLogic {
 		capture_mask = attackers;
 		push_mask = 0;
 
-		int attackerIndex = BBtoSquare.get(attackers);
-		Type t = GameState.board[attackerIndex].type;
-		if (t == Type.BISHOP || t == Type.ROOK || t == Type.QUEEN) {
+		int attackerIndex = Long.numberOfTrailingZeros(attackers);
+		int t = Piece.getType(GameState.board[attackerIndex]);
+		if (t == Type.BISHOP.ordinal() || t == Type.ROOK.ordinal() || t == Type.QUEEN.ordinal()) {
 			push_mask = inBetween[kingIndex][attackerIndex];
 			king_mask = squaresToLine[kingIndex][attackerIndex] ^ attackers;
 		}
@@ -258,7 +247,6 @@ public class MoveLogic {
 			for (int j = 0; j < 64; j++) {
 
 				boolean isCapture = (i - j) % 8 != 0;
-
 				if (Math.abs(i - j) == 16) {
 					pawnMoves[i][j] = mType.DOUBLE_PUSH;
 				} else if (j > 55 || j < 8) {
@@ -271,8 +259,6 @@ public class MoveLogic {
 				} else {
 					pawnMoves[i][j] = mType.QUIET;
 				}
-				// if (x != 8 && j % 8 == x && (((j - i) > 0 && j / 8 == 5) || ((j - i) < 0 && j
-				// / 8 == 2))) {
 			}
 		}
 
@@ -291,14 +277,10 @@ public class MoveLogic {
 			fileMasks[row] = 0x101010101010101L << row;
 		}
 
-		squareToBB.put(64, 0l); // for en passant
-
 		for (int i = 0; i < 64; i++) {
 
 			int row = i / 8, col = i % 8;
 			long BB = 1L << i;
-			squareToBB.put(i, BB);
-			BBtoSquare.put(BB, i);
 
 			int diagIndex = (row - col) & 15;
 			int antiDiagIndex = (row + col) ^ 7;
@@ -318,7 +300,7 @@ public class MoveLogic {
 			for (int to = from + 1; to < 64; to++) {
 
 				int fromRow = from / 8, fromCol = from % 8, toRow = to / 8, toCol = to % 8;
-				long occupied = squareToBB.get(from) | squareToBB.get(to);
+				long occupied = (1L << from) | (1L << to);
 				long currentMask = 0;
 
 				if (fromRow == toRow) {
@@ -344,6 +326,12 @@ public class MoveLogic {
 
 			}
 		}
+
+		kingToRook.put(2, new long[]{0,3,(1L) | (1L << 3)});
+		kingToRook.put(6, new long[]{7,5,(1L << 7) | (1L << 5)});
+		kingToRook.put(58, new long[]{56,59,(1L << 56) | (1L << 59)});
+		kingToRook.put(62, new long[]{63,61,(1L << 63) | (1L << 61)});
+
 		castleOccupiedSquares[0][0] = inBetween[0][4];
 		castleOccupiedSquares[0][1] = inBetween[4][7];
 		castleOccupiedSquares[1][0] = inBetween[56][60];
