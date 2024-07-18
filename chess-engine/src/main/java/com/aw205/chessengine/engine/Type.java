@@ -1,15 +1,21 @@
 
 package com.aw205.chessengine.engine;
 
-public enum Type {
+public class Type {
 
-	PAWN, BISHOP, KNIGHT, ROOK, QUEEN, KING;
+	public static final int PAWN = 0;
+	public static final int BISHOP = 1;
+	public static final int KNIGHT = 2;
+	public static final int ROOK = 3;
+	public static final int QUEEN = 4;
+	public static final int KING = 5;
 
-	public static char getFenChar(Type t) {
+	public static char getFenChar(int t){
 
 		switch (t) {
 			case PAWN:
 				return 'P';
+
 			case BISHOP:
 				return 'B';
 
@@ -24,8 +30,8 @@ public enum Type {
 
 			case KING:
 				return 'K';
-		};
-		return '0';
-
+			default:
+				return 'x';
+		}
 	}
 }

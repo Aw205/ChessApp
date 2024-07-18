@@ -15,14 +15,10 @@ public final class GameState {
 	public static long[] attackedSquares = new long[2];
 	public static long[][] piecePosition = new long[2][6];
 
-	public static Stack<Position> stack = new Stack<Position>();
+	private static Stack<Position> stack = new Stack<Position>();
 	public static int[] board = new int[64];
-
+	public static long zobristKey;
 	public static long captures = 0;
-
-	public GameState() {
-
-	}
 
 	public static void init() {
 
@@ -52,13 +48,15 @@ public final class GameState {
 			}
 		}
 
-		long startTime = System.nanoTime();
-		long num = perft(6);
-		long endTime = System.nanoTime();
-		long duration = (endTime - startTime) / 1000000;
-		System.out.println("time: " + duration + " ms");
-		System.out.println("DEPTH 6: " + num + " nodes");
-		System.out.println("CAPTURES: " + captures);
+		zobristKey = TranspositionTable.getHashKey();
+
+		// long startTime = System.nanoTime();
+		// long num = perft(6);
+		// long endTime = System.nanoTime();
+		// long duration = (endTime - startTime) / 1000000;
+		// System.out.println("time: " + duration + " ms");
+		// System.out.println("DEPTH 6: " + num + " nodes");
+		//System.out.println("CAPTURES: " + captures);
 	}
 
 	public static long perft(int depth) {
@@ -72,23 +70,6 @@ public final class GameState {
 			return moves.size();
 		}
 		for (int i = 0; i < moves.size(); i++) {
-			//int type = Move.getMoveType(moves.get(i));
-			// if (depth == 1 && (type == mType.CAPTURE || type == mType.EP_CAPTURE || type
-			// == mType.PROMO_CAPTURE)) {
-			// captures++;
-			// }
-			// if (depth == 1 && (type == mType.PROMO || type == mType.PROMO_CAPTURE )) {
-			// captures++;
-			// }
-			// if (depth == 1 && (type == mType.EP_CAPTURE )) {
-			// captures++;
-			// }
-			// if (depth == 1 && (type==mType.DOUBLE_PUSH )) {
-			// captures++;
-			// }
-			// if (depth == 1 && (type == mType.CASTLE.ordinal())) {
-			// captures++;
-			// }
 			makeMove(moves.get(i));
 			nodes += perft(depth - 1);
 			unmakeMove(moves.get(i));
@@ -103,8 +84,7 @@ public final class GameState {
 	 */
 	public static void makeMove(int move) {
 
-		mType moveType = mType.valMTypes[Move.getMoveType(move)];
-
+		int moveType = Move.getMoveType(move);
 		int fromIndex = Move.getFromSquare(move);
 		int toIndex = Move.getToSquare(move);
 		long from = 1L << fromIndex;
@@ -119,41 +99,54 @@ public final class GameState {
 
 		switch (moveType) {
 
-			case DOUBLE_PUSH:
+			case mType.DOUBLE_PUSH:
 				position.epSquare = fromIndex + (toIndex - fromIndex) / 2;
-			case QUIET:
+				//zobristKey ^= TranspositionTable.zobristPositionNums[17 + captureIndex%8];
+				
+			case mType.QUIET:
 				piecePosition[position.turn][type] ^= fromTo;
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
 				break;
 
-			case PROMO:
+			case mType.PROMO:
 
 				int promoType = Move.getPromoType(move);
 				piecePosition[position.turn][0] ^= from;
 				piecePosition[position.turn][promoType] ^= to;
 				board[fromIndex] = Piece.encodePiece(position.turn, promoType);
+
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][promoType];
+
 				break;
 
-			case EP_CAPTURE:
+			case mType.EP_CAPTURE:
 
 				long captureBB = MoveLogic.rankMasks[fromIndex / 8] & MoveLogic.fileMasks[toIndex % 8];
 				int captureIndex = Long.numberOfTrailingZeros(captureBB);
 
 				colorPositions[position.turn ^ 1] ^= captureBB;
-				piecePosition[position.turn ^ 1][0] ^= captureBB;
-				piecePosition[position.turn][0] ^= fromTo;
+				piecePosition[position.turn ^ 1][Type.PAWN] ^= captureBB;
+				piecePosition[position.turn][Type.PAWN] ^= fromTo;
 				board[captureIndex] = -1;
+
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][Type.PAWN];
+				zobristKey ^= TranspositionTable.zobristPieceNums[captureIndex][position.turn ^ 1][Type.PAWN];
 
 				break;
 
-			case CAPTURE:
+			case mType.CAPTURE:
 
 				int capturedType = Piece.getType(board[toIndex]);
 				colorPositions[position.turn ^ 1] ^= to;
 				piecePosition[position.turn ^ 1][capturedType] ^= to;
 				piecePosition[position.turn][type] ^= fromTo;
+
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn ^ 1][capturedType];
+
 				break;
 
-			case PROMO_CAPTURE:
+			case mType.PROMO_CAPTURE:
 
 				int promotype = Move.getPromoType(move);
 				int captureType = Piece.getType(board[toIndex]);
@@ -165,23 +158,34 @@ public final class GameState {
 				piecePosition[position.turn][promotype] ^= to;
 
 				board[fromIndex] = Piece.encodePiece(position.turn, promotype);
+
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][promotype];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn ^ 1][captureType];
+
 				break;
 
-			case CASTLE:
+			case mType.CASTLE:
 
-				piecePosition[position.turn][Type.KING.ordinal()] ^= fromTo;
+				piecePosition[position.turn][Type.KING] ^= fromTo;
 
 				long[] rookVals = MoveLogic.kingToRook.get(toIndex);
 
-				piecePosition[position.turn][Type.ROOK.ordinal()] ^= rookVals[2];
+				piecePosition[position.turn][Type.ROOK] ^= rookVals[2];
 				colorPositions[position.turn] ^= rookVals[2];
 				board[(int) rookVals[1]] = board[(int) rookVals[0]];
 				board[(int) rookVals[0]] = -1;
+
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][Type.KING];
+				zobristKey ^= TranspositionTable.zobristPieceNums[(int) rookVals[0]][position.turn][Type.ROOK];
+				zobristKey ^= TranspositionTable.zobristPieceNums[(int) rookVals[1]][position.turn][Type.ROOK];
+
 				break;
 
 			default:
 				System.out.println("Invalid move");
 		}
+		zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][type];
+		zobristKey ^= TranspositionTable.zobristPositionNums[16]; // turn
 
 		colorPositions[position.turn] ^= fromTo;
 		board[toIndex] = board[fromIndex];
@@ -194,7 +198,7 @@ public final class GameState {
 
 	public static void unmakeMove(int move) {
 
-		mType moveType = mType.valMTypes[Move.getMoveType(move)];
+		int moveType = Move.getMoveType(move);
 
 		int fromIndex = Move.getFromSquare(move);
 		int toIndex = Move.getToSquare(move);
@@ -206,19 +210,24 @@ public final class GameState {
 
 		position = stack.pop();
 
+		zobristKey ^= TranspositionTable.zobristPositionNums[16]; // turn
+
 		switch (moveType) {
 
-			case DOUBLE_PUSH:
-			case QUIET:
+			case mType.DOUBLE_PUSH:
+			case mType.QUIET:
 
 				piecePosition[position.turn][type] ^= fromTo;
 
 				board[fromIndex] = board[toIndex];
 				board[toIndex] = -1;
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][type];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
+
 				break;
 
-			case PROMO:
+			case mType.PROMO:
 
 				piecePosition[position.turn][0] ^= from;
 				piecePosition[position.turn][type] ^= to;
@@ -226,9 +235,12 @@ public final class GameState {
 				board[fromIndex] = Piece.encodePiece(position.turn,0);
 				board[toIndex] = -1;
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][Type.PAWN];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
+
 				break;
 
-			case EP_CAPTURE:
+			case mType.EP_CAPTURE:
 
 				long captureBB = MoveLogic.rankMasks[fromIndex / 8] & MoveLogic.fileMasks[toIndex % 8];
 				int captureIndex = Long.numberOfTrailingZeros(captureBB);
@@ -241,9 +253,13 @@ public final class GameState {
 				board[toIndex] = -1;
 				board[captureIndex] = Piece.encodePiece(position.turn ^ 1,0);
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][Type.PAWN];
+				zobristKey ^= TranspositionTable.zobristPieceNums[captureIndex][position.turn ^ 1][Type.PAWN];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][Type.PAWN];
+				
 				break;
 
-			case CAPTURE:
+			case mType.CAPTURE:
 
 				int captured = Move.getCapturedPiece(move);
 				int capturedType = Piece.getType(captured);
@@ -256,9 +272,13 @@ public final class GameState {
 				board[fromIndex] = board[toIndex];
 				board[toIndex] = captured;
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][type];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn ^ 1][capturedType];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
+				
 				break;
 
-			case PROMO_CAPTURE:
+			case mType.PROMO_CAPTURE:
 
 				int Captured = Move.getCapturedPiece(move);
 				int CapturedType = Piece.getType(Captured);
@@ -272,23 +292,32 @@ public final class GameState {
 				board[fromIndex] = Piece.encodePiece(position.turn,0);
 				board[toIndex] = Captured;
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][Type.PAWN];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn ^ 1][CapturedType];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][type];
+				
 				break;
 
-			case CASTLE:
+			case mType.CASTLE:
 
-				piecePosition[position.turn][Type.KING.ordinal()] ^= fromTo;
+				piecePosition[position.turn][Type.KING] ^= fromTo;
 
 				board[fromIndex] = board[toIndex];
 				board[toIndex] = -1;
 
 				long[] rookVals = MoveLogic.kingToRook.get(toIndex);
 
-				piecePosition[position.turn][Type.ROOK.ordinal()] ^= rookVals[2];
+				piecePosition[position.turn][Type.ROOK] ^= rookVals[2];
 				colorPositions[position.turn] ^= rookVals[2];
 
 				board[(int) rookVals[0]] = board[(int) rookVals[1]];
 				board[(int) rookVals[1]] = -1;
 
+				zobristKey ^= TranspositionTable.zobristPieceNums[fromIndex][position.turn][Type.KING];
+				zobristKey ^= TranspositionTable.zobristPieceNums[(int) rookVals[1]][position.turn][Type.ROOK];
+				zobristKey ^= TranspositionTable.zobristPieceNums[(int) rookVals[0]][position.turn][Type.ROOK];
+				zobristKey ^= TranspositionTable.zobristPieceNums[toIndex][position.turn][Type.KING];
+				
 				break;
 			default:
 				System.out.println("Invalid unmake move");
@@ -305,14 +334,14 @@ public final class GameState {
 
 		long bb = colorPositions[position.turn ^ 1];
 		while (bb != 0) {
-			int squareIndex = Long.numberOfTrailingZeros(bb);
+			int squareIndex = Long.numberOfTrailingZeros(bb);  
 			int type = Piece.getType(board[squareIndex]);
 			attackedSquares[position.turn ^ 1] |= Piece.generateAttackedSquares(type, position.turn ^ 1, squareIndex);
 			bb &= (bb - 1);
 		}
 
 		// determine check masks so can generate right legal moves
-		long kingBB = GameState.piecePosition[position.turn][Type.KING.ordinal()];
+		long kingBB = GameState.piecePosition[position.turn][Type.KING];
 		int kingIndex = Long.numberOfTrailingZeros(kingBB);
 
 		long checkers = MoveLogic.getAttackersToKing(position.turn ^ 1, kingIndex);
@@ -364,20 +393,102 @@ public final class GameState {
 		return moveList;
 	}
 
-	private static void addMoves(int fromIndex, long move, List<Integer> moves) {
+	/**
+	 * Used for Quiescence search
+	 * @return
+	 */
+	public static List<Integer> generateCaptureMoves() {
 
-		long nonCaptures = move & ~occupied;
-		while (nonCaptures != 0) {
-			int toIndex = Long.numberOfTrailingZeros(nonCaptures);
-			moves.add(Move.encodeMove(fromIndex, toIndex, mType.QUIET.ordinal(), 0, 0));
-			nonCaptures &= (nonCaptures - 1);
+		attackedSquares[0] = 0;
+		attackedSquares[1] = 0;
+
+		long bb = colorPositions[position.turn ^ 1];
+		while (bb != 0) {
+			int squareIndex = Long.numberOfTrailingZeros(bb);  
+			int type = Piece.getType(board[squareIndex]);
+			attackedSquares[position.turn ^ 1] |= Piece.generateAttackedSquares(type, position.turn ^ 1, squareIndex);
+			bb &= (bb - 1);
 		}
+
+		// determine check masks so can generate right legal moves
+		long kingBB = GameState.piecePosition[position.turn][Type.KING];
+		int kingIndex = Long.numberOfTrailingZeros(kingBB);
+
+		long checkers = MoveLogic.getAttackersToKing(position.turn ^ 1, kingIndex);
+		if (checkers != 0) {
+			MoveLogic.updateCheckMasks(kingIndex, checkers);
+		}
+		// find pins
+		MoveLogic.findAbsolutePins();
+
+		List<Integer> moveList = new ArrayList<Integer>();
+
+		long nonPawns = colorPositions[position.turn] & ~piecePosition[position.turn][0];
+		while (nonPawns != 0) {
+
+			int fromIndex = Long.numberOfTrailingZeros(nonPawns);
+			int type = Piece.getType(board[fromIndex]);
+
+			long attacked = Piece.generateAttackedSquares(type, position.turn, fromIndex);
+			long legalMoves = Piece.generateLegalMoves(type, fromIndex, attacked, kingIndex);
+
+			addCaptureMoves(fromIndex, legalMoves, moveList);
+			attackedSquares[position.turn] |= attacked;
+
+			nonPawns &= (nonPawns - 1);
+		}
+
+		long pawns = piecePosition[position.turn][0];
+		while (pawns != 0) {
+
+			int fromIndex = Long.numberOfTrailingZeros(pawns);
+
+			long attacked = Piece.generateAttackedSquares(0, position.turn, fromIndex);
+			long legalMoves = Piece.generateLegalPawnCaptureMoves(fromIndex, attacked, kingIndex);
+
+			addPawnMoves(fromIndex, legalMoves, moveList);
+			attackedSquares[position.turn] |= attacked;
+
+			pawns &= (pawns - 1);
+		}
+
+		generateEpMoves(kingIndex, moveList);
+
+		// reset check mask
+		MoveLogic.capture_mask = -1;
+		MoveLogic.push_mask = -1;
+		MoveLogic.king_mask = 0;
+
+		return moveList;
+	}
+
+	/**
+	 * Used for Quiesence search
+	 */
+	private static void addCaptureMoves(int fromIndex, long move, List<Integer> moves){
 
 		long captures = move & occupied;
 		while (captures != 0) {
 			int toIndex = Long.numberOfTrailingZeros(captures);
-			moves.add(Move.encodeMove(fromIndex, toIndex, mType.CAPTURE.ordinal(), 0, board[toIndex]));
+			moves.add(Move.encodeMove(fromIndex, toIndex, mType.CAPTURE, 0, board[toIndex]));
 			captures &= (captures - 1);
+		}
+	}
+
+	private static void addMoves(int fromIndex, long move, List<Integer> moves) {
+
+		long captures = move & occupied;
+		while (captures != 0) {
+			int toIndex = Long.numberOfTrailingZeros(captures);
+			moves.add(Move.encodeMove(fromIndex, toIndex, mType.CAPTURE, 0, board[toIndex]));
+			captures &= (captures - 1);
+		}
+
+		long nonCaptures = move & ~occupied;
+		while (nonCaptures != 0) {
+			int toIndex = Long.numberOfTrailingZeros(nonCaptures);
+			moves.add(Move.encodeMove(fromIndex, toIndex, mType.QUIET, 0, 0));
+			nonCaptures &= (nonCaptures - 1);
 		}
 	}
 
@@ -386,13 +497,13 @@ public final class GameState {
 		while (move != 0) {
 
 			int toIndex = Long.numberOfTrailingZeros(move);
-			int moveType = MoveLogic.pawnMoves[fromIndex][toIndex].ordinal();
-			int m = Move.encodeMove(fromIndex, toIndex, moveType, Type.QUEEN.ordinal(), board[toIndex]);
+			int moveType = MoveLogic.pawnMoves[fromIndex][toIndex];
+			int m = Move.encodeMove(fromIndex, toIndex, moveType, Type.QUEEN, board[toIndex]);
 
-			if (moveType == mType.PROMO.ordinal() || moveType == mType.PROMO_CAPTURE.ordinal()) {
-				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.KNIGHT.ordinal(), board[toIndex]));
-				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.BISHOP.ordinal(), board[toIndex]));
-				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.ROOK.ordinal(), board[toIndex]));
+			if (moveType == mType.PROMO || moveType == mType.PROMO_CAPTURE) {
+				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.KNIGHT, board[toIndex]));
+				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.BISHOP, board[toIndex]));
+				moves.add(Move.encodeMove(fromIndex, toIndex, moveType, Type.ROOK, board[toIndex]));
 			}
 			moves.add(m);
 			move &= (move - 1);
@@ -406,9 +517,8 @@ public final class GameState {
 	 */
 	private static void updateCastlingRights(int type) {
 
-		if (type == Type.KING.ordinal()) { // what if king eats other rook?
-			position.castlingRights[position.turn * 2] = false;
-			position.castlingRights[position.turn * 2 + 1] = false;
+		if (type == Type.KING) {
+			position.castlingRights &= 0b0011 << (position.turn * 2); 
 			return;
 		}
 
@@ -416,7 +526,7 @@ public final class GameState {
 			for (int side = 0; side < 2; side++) {
 				int sqr = MoveLogic.initialRookSquares[color][side];
 				if (board[sqr] == -1 || (Piece.getColor(board[sqr]) != color)) {
-					position.castlingRights[color * 2 + side] = false;
+					position.castlingRights &= ~(0b1000 >> (color * 2 + side));
 				}
 			}
 		}
@@ -428,12 +538,12 @@ public final class GameState {
 			return;
 		}
 		for (int i = 0; i < 2; i++) {
-			if (position.castlingRights[position.turn * 2 + i]) {
+			if ((position.castlingRights & (0b1000 >> position.turn *2 + i)) != 0) {
 				if ((MoveLogic.castleAttackedSquares[position.turn][i] & attackedSquares[position.turn ^ 1]) == 0) {
 					if ((MoveLogic.castleOccupiedSquares[position.turn][i] & occupied) == 0) {
 
 						int to = MoveLogic.castleTargetSquares[position.turn][i];
-						int castle = Move.encodeMove(kingIndex, to, mType.CASTLE.ordinal(), 0, 0);
+						int castle = Move.encodeMove(kingIndex, to, mType.CASTLE, 0, 0);
 						moves.add(castle);
 					}
 				}
@@ -444,7 +554,7 @@ public final class GameState {
 	private static void generateEpMoves(int kingIndex, List<Integer> moves) {
 
 		long epPos = MoveLogic.pawnAttacks[position.turn ^ 1][position.epSquare]
-				& piecePosition[position.turn][Type.PAWN.ordinal()];
+				& piecePosition[position.turn][Type.PAWN];
 
 		while (epPos != 0) {
 
@@ -460,12 +570,12 @@ public final class GameState {
 			if (((MoveLogic.capture_mask & epCapture) & pinMask) != 0) {
 
 				long occ = occupied ^ fromBB ^ epCapture;
-				long rookQueenPos = piecePosition[position.turn ^ 1][Type.QUEEN.ordinal()]
-						| piecePosition[position.turn ^ 1][Type.ROOK.ordinal()];
+				long rookQueenPos = piecePosition[position.turn ^ 1][Type.QUEEN]
+						| piecePosition[position.turn ^ 1][Type.ROOK];
 
 				if ((MoveLogic.sliding_moves(kingIndex, occ, MoveLogic.rankMasks[kingIndex / 8]) & rookQueenPos) == 0) {
 
-					int m = Move.encodeMove(from, position.epSquare, mType.EP_CAPTURE.ordinal(), 0, 0);
+					int m = Move.encodeMove(from, position.epSquare, mType.EP_CAPTURE, 0, 0);
 					moves.add(m);
 				}
 			}
@@ -497,27 +607,27 @@ public final class GameState {
 				idx += Character.getNumericValue(c);
 				continue;
 			}
-			Colour color = (Character.isLowerCase(c)) ? Colour.BLACK : Colour.WHITE;
+			int color = (Character.isLowerCase(c)) ? 1 : 0;
 			int p = -1;
 
 			switch (Character.toLowerCase(c)) {
 				case 'p':
-					p = Piece.encodePiece(color.ordinal(),Type.PAWN.ordinal());
+					p = Piece.encodePiece(color,Type.PAWN);
 					break;
 				case 'b':
-					p = Piece.encodePiece(color.ordinal(),Type.BISHOP.ordinal());
+					p = Piece.encodePiece(color,Type.BISHOP);
 					break;
 				case 'n':
-					p = Piece.encodePiece(color.ordinal(),Type.KNIGHT.ordinal());
+					p = Piece.encodePiece(color,Type.KNIGHT);
 					break;
 				case 'r':
-					p = Piece.encodePiece(color.ordinal(),Type.ROOK.ordinal());
+					p = Piece.encodePiece(color,Type.ROOK);
 					break;
 				case 'q':
-					p = Piece.encodePiece(color.ordinal(),Type.QUEEN.ordinal());
+					p = Piece.encodePiece(color,Type.QUEEN);
 					break;
 				case 'k':
-					p = Piece.encodePiece(color.ordinal(),Type.KING.ordinal());
+					p = Piece.encodePiece(color,Type.KING);
 					break;
 				default:
 					System.err.println("Invalid FEN");
@@ -535,15 +645,15 @@ public final class GameState {
 		position.turn = (sideToMove == 'w') ? 0 : 1;
 
 		Map<Character, Integer> castleMap = Map.of(
-				'Q', 0,
-				'K', 1,
-				'q', 2,
-				'k', 3);
+				'Q', 3,
+				'K', 2,
+				'q', 1,
+				'k', 0);
 
 		if (!castlingRights.equals("-")) {
 			for (int i = 0; i < castlingRights.length(); i++) {
-				int idex = castleMap.get(castlingRights.charAt(i));
-				position.castlingRights[idex] = true;
+				int shift = castleMap.get(castlingRights.charAt(i));
+				position.castlingRights |= (1 << shift);
 			}
 		}
 
@@ -554,6 +664,10 @@ public final class GameState {
 		}
 
 		position.halfMoveClock = halfMoveClock;
+
+
+		zobristKey = TranspositionTable.getHashKey();
+
 	}
 
 	public static void printDebug() {
@@ -570,21 +684,20 @@ public final class GameState {
 		System.out.println(RED + "Move Counter: " + position.halfMoveClock + RESET);
 
 		String turn = (position.turn == 0) ? "White" : "Black";
-
 		System.out.println(RED + "TURN: " + turn + RESET);
 
-		System.out.println(GREEN + "Occupied:" + RESET);
+		//System.out.println(GREEN + "Occupied:" + RESET);
 
-		String occString = String.format("%64s", Long.toBinaryString(occupied)).replace(' ', '0');
-		StringBuilder occupiedBB = new StringBuilder(occString);
-		occupiedBB.reverse();
-		for (int i = 64; i > 0; i -= 8) {
-			String row = occupiedBB.substring(i - 8, i)
-					.replace("", " ")
-					.replace("1", RED + "1" + RESET)
-					.replace(" 0", GRAY + " 0" + RESET);
-			System.out.println(" " + row);
-		}
+		// String occString = String.format("%64s", Long.toBinaryString(occupied)).replace(' ', '0');
+		// StringBuilder occupiedBB = new StringBuilder(occString);
+		// occupiedBB.reverse();
+		// for (int i = 64; i > 0; i -= 8) {
+		// 	String row = occupiedBB.substring(i - 8, i)
+		// 			.replace("", " ")
+		// 			.replace("1", RED + "1" + RESET)
+		// 			.replace(" 0", GRAY + " 0" + RESET);
+		// 	System.out.println(" " + row);
+		// }
 
 		// System.out.println(YELLOW + "En Passant Square: " + RESET +
 		// position.epSquare);
@@ -594,30 +707,26 @@ public final class GameState {
 		// System.out.println(Long.toBinaryString(attackedSquares[1]));
 
 		System.out.println(GREEN + "Castling Rights: " + RESET);
-		System.out.println("White queenside: " + position.castlingRights[0]);
-		System.out.println("White kingside: " + position.castlingRights[1]);
-		System.out.println("Black queenside: " + position.castlingRights[2]);
-		System.out.println("Black kingside: " + position.castlingRights[3]);
+		System.out.println(Byte.toString(position.castlingRights));
 
-		System.out.println(GREEN + "Board:" + RESET);
-
-		int idx = 56;
-		for (int i = 0; i < 64; i++) {
-			if (board[idx] != -1) {
-				char c = Type.getFenChar(Type.values()[Piece.getType(board[idx])]);
-				String p = (Piece.getColor(board[idx]) == Colour.WHITE.ordinal()) ? MAGENTA + c + RESET
-						: CYAN + Character.toLowerCase(c) + RESET;
-				System.out.print(p);
-				idx++;
-			} else {
-				System.out.print(".");
-				idx++;
-			}
-			if ((i + 1) % 8 == 0) {
-				idx -= 16;
-				System.out.println("");
-			}
-		}
+		// System.out.println(GREEN + "Board:" + RESET);
+		// int idx = 56;
+		// for (int i = 0; i < 64; i++) {
+		// 	if (board[idx] != -1) {
+		// 		char c = Type.getFenChar(Piece.getType(board[idx]));
+		// 		String p = (Piece.getColor(board[idx]) == Colour.WHITE.ordinal()) ? MAGENTA + c + RESET
+		// 				: CYAN + Character.toLowerCase(c) + RESET;
+		// 		System.out.print(p);
+		// 		idx++;
+		// 	} else {
+		// 		System.out.print(".");
+		// 		idx++;
+		// 	}
+		// 	if ((i + 1) % 8 == 0) {
+		// 		idx -= 16;
+		// 		System.out.println("");
+		// 	}
+		// }
 	}
 
 	public static String getFen() {
@@ -635,8 +744,8 @@ public final class GameState {
 					row.append(emptyCount);
 					emptyCount = 0;
 				}
-				char c = Type.getFenChar(Type.values()[Piece.getType(board[i])]);
-				if (Piece.getColor(board[i]) == Colour.BLACK.ordinal()) {
+				char c = Type.getFenChar(Piece.getType(board[i]));
+				if (Piece.getColor(board[i]) == 1) {
 					c = Character.toLowerCase(c);
 				}
 				row.append(c);

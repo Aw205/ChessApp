@@ -12,8 +12,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.aw205.chessengine.engine.GameState;
+import com.aw205.chessengine.engine.Search;
 import com.aw205.chessengine.engine.Move;
 import com.aw205.chessengine.engine.MoveLogic;
+import com.aw205.chessengine.engine.Piece;
 import com.aw205.chessengine.engine.Type;
 import com.aw205.chessengine.engine.mType;
 
@@ -26,7 +28,7 @@ public class Controller {
     @RequestMapping("/legalMoves")
     public List<_Move> getLegalMoves() {
 
-        long kingPos = GameState.piecePosition[GameState.position.turn ^ 1][Type.KING.ordinal()];
+        long kingPos = GameState.piecePosition[GameState.position.turn ^ 1][Type.KING];
         int kingIndex = Long.numberOfTrailingZeros(kingPos);
 
         List<_Move> moves = new ArrayList<_Move>();
@@ -40,8 +42,10 @@ public class Controller {
 
             _Move m1 = new _Move(m, fen);
             if (checkers != 0) {
-                m1.type = "CHECK";
+                m1.moveType = "CHECK";
+                m1.notation+= "+";
             }
+          
             moves.add(m1);
             moveMap.put(m1.getID(), m);
         }
@@ -49,9 +53,20 @@ public class Controller {
     }
 
     @PutMapping("/updateGameState")
-    public void updateGameState(@RequestBody String fromTo) {
-        GameState.makeMove(moveMap.get(fromTo));
-        //GameState.printDebug();
+    public void updateGameState(@RequestBody String id) {
+        GameState.makeMove(moveMap.get(id));
+    }
+
+    @RequestMapping("/getBestMove")
+    public _Move getBestMove() {
+
+        int move = Search.rootSearch(Integer.MIN_VALUE, Integer.MAX_VALUE, 4);
+
+        GameState.makeMove(move);
+        String fen = GameState.getFen();
+        GameState.unmakeMove(move);
+
+        return new _Move(move, fen);
     }
 }
 
@@ -59,8 +74,10 @@ class _Move {
 
     public String from;
     public String to;
-    public String type;
-    public String promoType = "";
+    public String moveType;
+    public char fromType;
+    public char promoType;
+    public String notation;
     public String fen;
     public String id;
 
@@ -69,12 +86,13 @@ class _Move {
         this.from = moveToCoord(Move.getFromSquare(m));
         this.to = moveToCoord(Move.getToSquare(m));
 
-        this.type = mType.valMTypes[Move.getMoveType(m)].toString();
-        
-        if(this.type.equals("PROMO") || this.type.equals("PROMO_CAPTURE")){ //fix this
-            this.promoType = Type.values()[Move.getPromoType(m)].toString();
-        }
-       
+        this.fromType = Type.getFenChar(Piece.getType(GameState.board[Move.getFromSquare(m)])); 
+
+        this.moveType = mType.getMoveString(Move.getMoveType(m));
+        this.promoType = Type.getFenChar(Move.getPromoType(m));
+
+        this.notation = this.getNotation();
+
         this.fen = fen;
         this.id = this.getID();
 
@@ -89,5 +107,25 @@ class _Move {
         int row = 1 + (square / 8);
         char column = (char) ('a' + (square % 8));
         return String.valueOf(column) + row;
+    }
+
+    private String getNotation() {
+
+        String notation = "";
+        if (this.moveType.equals("CAPTURE")) {
+            char prefix = (Character.toLowerCase(this.fromType) == 'p') ? this.from.charAt(0) : this.fromType;
+            notation = prefix + "x" + this.to;
+        } else if (this.moveType.equals("CASTLE")) {
+            notation = (this.to.equals("g1") || this.to.equals("g8")) ? "O-O" : "O-O-O";
+        } else if (this.moveType.equals("PROMO")) {
+            notation = this.to + "=" + this.promoType;
+        } else if (this.moveType.equals("PROMO_CAPTURE")) {
+            notation = this.from.charAt(0) + "x" + this.to + "=" + this.promoType;
+        } else {
+            String prefix = (Character.toLowerCase(this.fromType) == 'p') ? "" : String.valueOf(this.fromType);
+            notation = prefix + this.to;
+        }
+
+        return notation;
     }
 }

@@ -2,10 +2,12 @@
 <html>
 
 <head>
-    <title>Chess</title>
+    <title>Poko</title>
     <link rel="stylesheet" href="chessboardjs-1.0.0/css/chessboard-1.0.0.min.css">
     <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
     <script src="chessboardjs-1.0.0/js/chessboard-1.0.0.min.js"></script>
+    <link rel="icon" type="image/png" href="assets/images/pokoFace.png">
+    <link rel="stylesheet" href="styles/main.css">
 
     <style>
         body {
@@ -15,22 +17,27 @@
 </head>
 
 <body>
-    <div id="board1" style="width: 30%; margin: auto;"></div>
+
+    <img src="assets/images/blackCat.png" id="black-cat" class="">
+    <div id="board1" style=" position:absolute; top:50%; left: 50%; width: 30%; margin:0; transform: translate(-50%,-50%);"></div>
+    <img src="assets/images/tanCat.png" id="tan-cat" class="floating">
+
+    <div id="score-sheet" data-count="0"></div>
+
     <script>
 
         var config = {
             draggable: true,
             showNotation: true,
             dropOffBoard: 'snapback',
-
-            //position: 'start',
+            position: 'start',
             //position: '8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - ', //position 3
             //position: 'rnbqkbnr/ppp3pp/4B3/p3R2p/1P6/8/PPPP1PPP/RNB1KBNR w - - 0 1', //double check
-            position: 'r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ', // kiwipete
+            //position: 'r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ', // kiwipete
             //position: 'n1n5/PPPk4/8/8/8/8/4K1qp/5q1N w - - 0 1', // promotion test
             //position: '8/8/8/2k5/2p1p3/8/3P4/4K3 w - - 0 1', // en passant check evasion
             //position: '8/6bb/8/8/R1pP2k1/4P3/P7/K7 b - d3 0 1', //en passant horizontal pin test
-            sparePieces: false,
+            //sparePieces: true,
             onDrop: onDrop,
             onDragStart: onDragStart,
             onSnapEnd: onSnapEnd
@@ -55,20 +62,28 @@
 
         let validMoves = [];
 
+        let scoreSheet = document.getElementById("score-sheet");
+
         function makeRandomMove() {
 
             if (validMoves.length == 0) {
-                console.log("Checkmate!");
-                soundMap.get("GAME_END").play();
-                return;
+                return soundMap.get("GAME_END").play();
             }
-
             let move = validMoves[Math.floor(Math.random() * validMoves.length)];
+
+            scoreSheet.children[Math.floor(scoreSheet.dataset.count / 2)].innerHTML += move.notation.concat("&emsp;");
+            scoreSheet.dataset.count++;
+
             board1.position(move.fen);
-            soundMap.get(move.type).play();
-
+            soundMap.get(move.moveType).play();
             updateGameState(move.id);
+        }
 
+        function makeBestMove() {
+            if (validMoves.length == 0) {
+                return soundMap.get("GAME_END").play();
+            }
+            getBestMove();
         }
 
         function removeGreySquares() {
@@ -82,10 +97,22 @@
             if (move == undefined) {
                 return 'snapback';
             }
+
+            let count = scoreSheet.dataset.count;
+
+            if(count %2 == 0){
+                let color = ((count/2) % 2 == 0) ? "rgb(30,30,30)" : "rgb(40,40,40)";
+                scoreSheet.innerHTML += ` <div style="color: darkgray; font: 1rem 'Trebuchet MS'; background-color: ${color}; padding: 0.5rem; "> ${(count/2) + 1}.</div>`;
+            }
+            scoreSheet.children[Math.floor(count / 2)].innerHTML += move.notation.concat("&emsp;");
+            scoreSheet.dataset.count++;
+            scoreSheet.scrollTop = scoreSheet.scrollHeight;
+
             currentMove = move;
-            soundMap.get(move.type).play();
+            soundMap.get(move.moveType).play();
             updateGameState(move.id);
             //setTimeout(makeRandomMove, 500);
+            setTimeout(makeBestMove, 500);
         }
 
         function onSnapEnd(source, target, piece) {
@@ -107,6 +134,7 @@
                 greySquare(m.to);
             }
         }
+
     </script>
 
     <script>
@@ -129,6 +157,18 @@
             })
                 .then(reponse => {
                     getLegalMoves();
+                });
+        }
+
+        function getBestMove() {
+            fetch('http://localhost:8080/getBestMove')
+                .then(response => {
+                    return response.json();
+                })
+                .then(bestMove => {
+                    board1.position(bestMove.fen);
+                    soundMap.get(bestMove.moveType).play();
+                    updateGameState(bestMove.id);
                 });
         }
 

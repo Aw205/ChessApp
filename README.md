@@ -1,14 +1,73 @@
-# Chess
+# Poko
 
-A custom chess engine.
+A chess engine.
+
+## Performance
+
+### Perft Tests
+
+Starting Position: `rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1`
+
+<details open>
+<summary> Results </summary>
+
+| Depth  | Nodes        | Time (ms) | Time w/ bulk-counting (ms) |
+| ------ | ------------ | --------- | -------------------------- |
+| 1      | 20 			| 0         | 0        
+| 2      | 400      	| 1    	    | 0        
+| 3      | 8902      	| 6    	    | 3
+| 4      | 197,281      | 23    	| 14   
+| 5      | 4,865,609	| 267    	| 161   
+| 6      | 119,060,324  | 5485    	| 2591 
+| 7      | 3,195,901,860| 136,134   | 61,802
+
+</details>
+
+\
+Kiwipete (Position 2 on CPW): `r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1`
+
+<details>
+<summary> Results </summary>
+
+| Depth  | Nodes        | Time (ms) | Time w/ bulk-counting (ms) |
+| ------ | ------------ | --------- | -------------------------- |
+| 1      | 48 			| 0         | 0     
+| 2      | 2039      	| 3         | 1     
+| 3      | 97,862      	| 16        | 7
+| 4      | 4,085,603    | 196       | 87
+| 5      | 193,690,690	| 7170      | 2412
+| 6      | 8,031,647,685| 300,512   | 106,694  
+</details>
+
+\
+Position 3 on CPW: `8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1`
+
+<details>
+<summary> Results </summary>
+
+| Depth  | Nodes        | Time (ms) | Time w/ bulk-counting (ms) |
+| ------ | ------------ | --------- | -------------------------- |
+| 1      | 14 			|  0        | 0    
+| 2      | 191      	|  0   		| 0        
+| 3      | 2812      	|  3    	| 1
+| 4      | 43,238    	|  10    	| 6   
+| 5      | 674,624		|  46    	| 30   
+| 6      | 11,030,083 	|  503    	| 223
+| 7      | 178,633,661 	|  7730    	| 3122
+| 8      | 3,009,794,393|  124,691  | 48,912   
+
+</details>
+
 
 ## Implementation
 
+A brief overview of the **move generation**, **search**, and **evaluation**.
+
 ### Move generation
 
-Note that this doesn't encompass legal moves, which require additional tests for checks and pins.
+#### Calculating Attacked Squares 
 
-<details open>
+<details>
 <summary> King </summary>
 
  - Precalculate the king moves given the position `square`.
@@ -23,7 +82,7 @@ Note that this doesn't encompass legal moves, which require additional tests for
 ```
 </details>
 
-<details open>
+<details>
 <summary> Knight </summary>
 
 -  Precalcuate the knight moves given a position `pos`.
@@ -43,7 +102,7 @@ Note that this doesn't encompass legal moves, which require additional tests for
 		attacks |= (east | west) << 8 & (~rankMasks[0]); // left/right 2 up 1
 		attacks |= (east | west) >> 8 & (~rankMasks[7]); // left/right 2 down 1
 
-        // again, rank and file masks account for moves out of bounds
+        // rank and file masks account for moves out of bounds
 
 		return attacks;
 
@@ -51,7 +110,7 @@ Note that this doesn't encompass legal moves, which require additional tests for
 </details>
 
 
-<details open>
+<details>
 <summary> Bishop </summary>
 
 - Operates with sliding moves, so we just need to know which diagonals the bishops sits on.
@@ -69,7 +128,7 @@ Note that this doesn't encompass legal moves, which require additional tests for
 
 </details>
 
-<details open>
+<details>
 <summary> Rook </summary>
 
 - Like the bishop, the rook operates with sliding moves but instead with a rank/files mask instead of diag/anti-diag masks.
@@ -79,16 +138,23 @@ Note that this doesn't encompass legal moves, which require additional tests for
 ```
 </details>
 
-<details open>
+<details>
 <summary> Pawn </summary>
 
-- Pre
+- Since pawns can't exist on the 1st or 8th rank, rank masks are uneccessary.
+
+```java
+       	long pawn_move = 1L << square;
+		long push = (color == 0) ? pawn_move << 8 : pawn_move >> 8;
+		return push & ~GameState.occupied; 
+```
+
 </details>
 
-<details open>
+<details>
 <summary> Queen </summary>
 
-- This is simply the union of the bishop and rook moves.
+- This is the union of the bishop and rook moves.
 
 ```java
 
@@ -98,57 +164,73 @@ Note that this doesn't encompass legal moves, which require additional tests for
 ```
 </details>
 
-The rook and bishop moves employ a technique called [hyperbola quintessence](https://www.chessprogramming.org/Hyperbola_Quintessence) to generate the sliding moves. 
+\
+The sliding pieces employ a technique called [hyperbola quintessence](https://www.chessprogramming.org/Hyperbola_Quintessence) to generate the sliding moves. 
 
 
-### Checks & Pins
+#### Checks & Pins
 
-In order to determine if a move is legal, we have to know whether our king is in check and if a piece is pinned to the king. For checks, we look at the attackers to our king
+To determine if a move is legal, we have to know whether our king is in check and the position of the pinned pieces.
+
+
+<details>
+<summary> Finding checks </summary>
+
+- We generate different attacks from the position of the king and intersect it with the position of the corresponding enemy pieces. The result is a bitboard of all pieces that are giving checks.
 
 ```java
+ 		// getting positions of all the pieces
 
-        long rookPos, bishopPos, pawnPos, knightPos;
+		long pawnPos = GameState.piecePosition[color][Type.PAWN];
+		long knightPos = GameState.piecePosition[color][Type.KNIGHT];
+		long rookPos = bishopPos = GameState.piecePosition[color][Type.QUEEN];
+		long bishopPos |= GameState.piecePosition[color][Type.BISHOP];
+		rookPos |= GameState.piecePosition[color][Type.ROOK];
 
-        // getting all the positions of the pieces
-		
-		pawnPos = GameState.piecePosition[pColor.ordinal()][Type.PAWN.ordinal()];
-	    knightPos = GameState.piecePosition[pColor.ordinal()][Type.KNIGHT.ordinal()];
-		rookPos = bishopPos = GameState.piecePosition[pColor.ordinal()][Type.QUEEN.ordinal()];
-		bishopPos |= GameState.piecePosition[pColor.ordinal()][Type.BISHOP.ordinal()];
-		rookPos |= GameState.piecePosition[pColor.ordinal()][Type.ROOK.ordinal()];
-	
-		return (pawnAttacks[pColor.opposite().ordinal()][kingIndex] & pawnPos) | (knightAttacks[kingIndex] & knightPos)
-				| (bishop_moves(kingIndex,GameState.occupied) & bishopPos) | (rook_moves(kingIndex,GameState.occupied) & rookPos);
-
+		return (pawnAttacks[color ^ 1][kingIndex] & pawnPos) | (knightAttacks[kingIndex] & knightPos)
+				| (bishop_moves(kingIndex, GameState.occupied) & bishopPos)
+				| (rook_moves(kingIndex, GameState.occupied) & rookPos);
 
 ```
+</details>
 
-### Make/Unmake 
+<details>
+<summary> Finding absolute pins
+
+
+
+</details>
+
+#### Make/Unmake 
 
 When a move is made, the game state needs to be updated to reflect the new position. 
 
 - `occupied` - a bitboard of the squares occupied by pieces.
 - `colorPositions` - an array of bitboards representing the occupied squares of each color (black/white).
 - `attackedSquares` - an array of bitboards representing the combined attacked squares of the same colored pieces.
-- `piecePosition` - a 2D array of bitboards representing the position of each piece like black knights, white queen, etc. The array is indexed by color and piece type.
-- `castlingRights` - a byte with each bit representing the white and black castling rights. 
-- `pieceArr` - an array of 2 Lists representing the black and white pieces.
-- `board` - an array acting as the square centric representation of the pieces on the board.
+- `piecePosition` - a 2D array of bitboards representing the position of each piece indexed by color and piece type.
+- `board` - a square centric array of the board.
+- `stack` - a stack from which Position objects are pushed and popped during make/unmake.
 
 
+### Search
+
+Uses the Alpha-Beta algorithm.
+
+Features currently implemented:
+
+- Transposition tables
+- Quiescence search
+- Move ordering
+	- Captures first
+	- MMV_LVA
+- Iterative deepening
+
+### Evaluation
 
 
+It's pretty simple right now.
 
-## Performance
-
-### Perft Tests
-
-Starting Position: `rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1`
-
-| Depth  | Nodes | Captures | En Passant | Castles | Promotions | Checks | Discovery Checks | Double Checks | Checkmate |
-| ------ | ----- | -------- | ---------- | ------- | ---------- | ------ | ---------------- | ------------- | --------- | 
-| 0      |       |          |            |         |            |        |                  |               |           |
-| 1      |       |          |            |         |            |        |                  |               |           |
-| 2      |       |          |            |         |            |        |                  |               |           |
-
-
+- Material 
+- Mobility
+	- Attacked squares

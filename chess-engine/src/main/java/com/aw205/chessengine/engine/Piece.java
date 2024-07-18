@@ -1,7 +1,5 @@
 package com.aw205.chessengine.engine;
 
-import org.springframework.web.bind.annotation.GetMapping;
-
 public class Piece {
 
 	private static final int COLOR_SHIFT = 0; // 1 bits
@@ -30,6 +28,19 @@ public class Piece {
 		long pinMask = calcPinMask(squareIndex,kingIndex);
 		return MoveLogic.filterLegalMoves(0,pinMask,pseudoLegalMoves);
 	}
+
+
+	/**
+	 * Used for Quiesence search
+	 */
+	public static long generateLegalPawnCaptureMoves(int squareIndex, long attackedSquares,int kingIndex){
+
+		long pseudoLegalMoves = MoveLogic.filterPseudoLegalMoves(attackedSquares) & GameState.occupied;
+		long pinMask = calcPinMask(squareIndex,kingIndex);
+		return MoveLogic.filterLegalMoves(0,pinMask,pseudoLegalMoves);
+
+	}
+
 
 	public static long calcPinMask(int squareIndex, int kingIndex) {
 

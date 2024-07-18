@@ -1,5 +1,4 @@
 package com.aw205.chessengine.engine;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -16,7 +15,8 @@ public class MoveLogic {
 	public static int[][] castleTargetSquares = { { 2, 6 }, { 58, 62 } };
 	public static int[][] initialRookSquares = { { 0, 7 }, { 56, 63 } };
 
-	public static Map<Integer,long[]> kingToRook = new HashMap<Integer,long[]>(); //rookFromIdx, rookToIdx, rookFromTo
+	public static Map<Integer, long[]> kingToRook = new HashMap<Integer, long[]>(); // rookFromIdx, rookToIdx,
+																					// rookFromTo
 
 	public static long[] diagMasks = new long[16];
 	public static long[] antiDiagMasks = new long[16];
@@ -28,9 +28,10 @@ public class MoveLogic {
 	public static long[] kingAttacks = new long[64];
 
 	public static long[][] inBetween = new long[64][64];
-	public static long[][] squaresToLine = new long[64][64]; // indicies are from-to, returns the line/diag it resides on
-																
-	public static mType[][] pawnMoves = new mType[64][64];
+	public static long[][] squaresToLine = new long[64][64]; // indicies are from-to, returns the line/diag it resides
+																// on
+
+	public static int[][] pawnMoves = new int[64][64];
 
 	public static long xRayRookAttacks(int square, long blockers) {
 
@@ -81,7 +82,7 @@ public class MoveLogic {
 	}
 
 	public static long filterLegalMoves(int type, long pin_mask, long moves) {
-		if (type == Type.KING.ordinal()) {
+		if (type == Type.KING) {
 			moves &= ~king_mask; // ensure king doesn't move onto line of checkers
 			moves &= ~GameState.attackedSquares[GameState.position.turn ^ 1];
 			return moves;
@@ -104,11 +105,11 @@ public class MoveLogic {
 		return moves;
 	}
 
-	private static long pawn_attacks(long square, Colour color) {
+	private static long pawn_attacks(long square, int color) {
 
 		long east = (square << 1) & ~fileMasks[0];
 		long west = (square >> 1) & ~fileMasks[7];
-		return (color == Colour.WHITE) ? (east | west) << 8 : (east | west) >> 8;
+		return (color == 0) ? (east | west) << 8 : (east | west) >> 8;
 
 	}
 
@@ -138,11 +139,11 @@ public class MoveLogic {
 
 		long rookPos, bishopPos, pawnPos, knightPos;
 
-		pawnPos = GameState.piecePosition[color][Type.PAWN.ordinal()];
-		knightPos = GameState.piecePosition[color][Type.KNIGHT.ordinal()];
-		rookPos = bishopPos = GameState.piecePosition[color][Type.QUEEN.ordinal()];
-		bishopPos |= GameState.piecePosition[color][Type.BISHOP.ordinal()];
-		rookPos |= GameState.piecePosition[color][Type.ROOK.ordinal()];
+		pawnPos = GameState.piecePosition[color][Type.PAWN];
+		knightPos = GameState.piecePosition[color][Type.KNIGHT];
+		rookPos = bishopPos = GameState.piecePosition[color][Type.QUEEN];
+		bishopPos |= GameState.piecePosition[color][Type.BISHOP];
+		rookPos |= GameState.piecePosition[color][Type.ROOK];
 
 		return (pawnAttacks[color ^ 1][kingIndex] & pawnPos) | (knightAttacks[kingIndex] & knightPos)
 				| (bishop_moves(kingIndex, GameState.occupied) & bishopPos)
@@ -152,11 +153,11 @@ public class MoveLogic {
 
 	public static void findAbsolutePins() {
 
-		long occQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.QUEEN.ordinal()];
-		long occRQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.ROOK.ordinal()] | occQ;
-		long occBQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.BISHOP.ordinal()] | occQ;
+		long occQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.QUEEN];
+		long occRQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.ROOK] | occQ;
+		long occBQ = GameState.piecePosition[GameState.position.turn ^ 1][Type.BISHOP] | occQ;
 
-		long kingBB = GameState.piecePosition[GameState.position.turn][Type.KING.ordinal()];
+		long kingBB = GameState.piecePosition[GameState.position.turn][Type.KING];
 		int kingPos = Long.numberOfTrailingZeros(kingBB);
 
 		long pinner = xRayRookAttacks(kingPos, GameState.colorPositions[GameState.position.turn])
@@ -193,7 +194,7 @@ public class MoveLogic {
 				int idx = Long.numberOfTrailingZeros(c);
 				int t = Piece.getType(GameState.board[idx]);
 
-				if (t == Type.BISHOP.ordinal() || t == Type.ROOK.ordinal() || t == Type.QUEEN.ordinal()) {
+				if (t == Type.BISHOP || t == Type.ROOK || t == Type.QUEEN) {
 					king_mask |= (squaresToLine[kingIndex][idx] ^ c);
 				}
 			}
@@ -205,7 +206,7 @@ public class MoveLogic {
 
 		int attackerIndex = Long.numberOfTrailingZeros(attackers);
 		int t = Piece.getType(GameState.board[attackerIndex]);
-		if (t == Type.BISHOP.ordinal() || t == Type.ROOK.ordinal() || t == Type.QUEEN.ordinal()) {
+		if (t == Type.BISHOP || t == Type.ROOK || t == Type.QUEEN) {
 			push_mask = inBetween[kingIndex][attackerIndex];
 			king_mask = squaresToLine[kingIndex][attackerIndex] ^ attackers;
 		}
@@ -291,8 +292,8 @@ public class MoveLogic {
 			knightAttacks[i] = knight_moves(BB);
 			kingAttacks[i] = king_moves(BB);
 
-			pawnAttacks[Colour.WHITE.ordinal()][i] = pawn_attacks(BB, Colour.WHITE);
-			pawnAttacks[Colour.BLACK.ordinal()][i] = pawn_attacks(BB, Colour.BLACK);
+			pawnAttacks[0][i] = pawn_attacks(BB,0);
+			pawnAttacks[1][i] = pawn_attacks(BB,1);
 
 		}
 
@@ -327,10 +328,10 @@ public class MoveLogic {
 			}
 		}
 
-		kingToRook.put(2, new long[]{0,3,(1L) | (1L << 3)});
-		kingToRook.put(6, new long[]{7,5,(1L << 7) | (1L << 5)});
-		kingToRook.put(58, new long[]{56,59,(1L << 56) | (1L << 59)});
-		kingToRook.put(62, new long[]{63,61,(1L << 63) | (1L << 61)});
+		kingToRook.put(2, new long[] { 0, 3, (1L) | (1L << 3) });
+		kingToRook.put(6, new long[] { 7, 5, (1L << 7) | (1L << 5) });
+		kingToRook.put(58, new long[] { 56, 59, (1L << 56) | (1L << 59) });
+		kingToRook.put(62, new long[] { 63, 61, (1L << 63) | (1L << 61) });
 
 		castleOccupiedSquares[0][0] = inBetween[0][4];
 		castleOccupiedSquares[0][1] = inBetween[4][7];
